@@ -2,21 +2,21 @@ import prisma from '../src/config/prismaClient';
 
 beforeAll(async () => {
   // Clear the DB entirely before tests run
-  const tablenames = await prisma.$queryRaw<
-    Array<{ tablename: string }>
-  >`SELECT tablename FROM pg_tables WHERE schemaname='public'`;
+  const tablenames = await prisma.$queryRaw<Array<{ tablename: string }>>`
+    SELECT tablename FROM pg_tables WHERE schemaname='public'
+  `;
 
   const tables = tablenames
-    .map(({ tablename }) => tablename)
-    .filter((name) => name !== '_prisma_migrations')
-    .map((name) => `"public"."${name}"`)
+    .map(({ tablename }: { tablename: string }) => tablename)
+    .filter((name: string) => name !== '_prisma_migrations')
+    .map((name: string) => `"public"."${name}"`)
     .join(', ');
 
   try {
     if (tables) {
       await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE;`);
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.log({ error });
   }
 });
