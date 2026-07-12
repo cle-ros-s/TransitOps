@@ -1,0 +1,17 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const driver_controller_1 = require("./driver.controller");
+const validate_1 = require("../../middleware/validate");
+const driver_schema_1 = require("./driver.schema");
+const authenticate_1 = require("../../middleware/authenticate");
+const requirePermission_1 = require("../../middleware/requirePermission");
+const router = (0, express_1.Router)();
+router.use(authenticate_1.authenticate);
+router.get('/available', (0, requirePermission_1.requirePermission)('drivers'), driver_controller_1.listAvailableDriversHandler);
+router.get('/', (0, requirePermission_1.requirePermission)('drivers'), driver_controller_1.listDriversHandler);
+router.get('/:id', (0, requirePermission_1.requirePermission)('drivers'), driver_controller_1.getDriverHandler);
+router.post('/', (0, requirePermission_1.requirePermission)('drivers'), (0, validate_1.validate)({ body: driver_schema_1.createDriverSchema }), driver_controller_1.createDriverHandler);
+router.put('/:id', (0, requirePermission_1.requirePermission)('drivers'), (0, validate_1.validate)({ body: driver_schema_1.updateDriverSchema }), driver_controller_1.updateDriverHandler);
+router.patch('/:id/status', (0, requirePermission_1.requirePermission)('drivers'), (0, validate_1.validate)({ body: driver_schema_1.patchDriverStatusSchema }), driver_controller_1.patchDriverStatusHandler);
+exports.default = router;
