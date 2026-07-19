@@ -1,75 +1,90 @@
-import { db } from './db';
-import type { FuelLog, Expense, VehicleCostBreakdown } from '../types';
+import { api } from '../lib/apiClient';
+import type { FuelLog, Expense } from '../types';
 
-export async function getFuelLogs(): Promise<FuelLog[]> {
-  await db.delay();
-  return [...db.get().fuelLogs];
+// ── Fuel Logs ─────────────────────────────────────────────────────────────────
+
+function normalizeFuel(f: Record<string, unknown>): FuelLog {
+  return {
+    id: f.id as string,
+    vehicleId: f.vehicleId as string,
+    tripId: f.tripId as string | undefined,
+    date: f.date as string,
+    liters: f.liters as number,
+    costPerLiter: f.costPerLiter as number,
+    totalCost: f.totalCost as number,
+    odometer: f.odometer as number,
+    fuelStation: f.fuelStation as string | undefined,
+    createdAt: f.createdAt as string,
+  };
 }
 
-export async function createFuelLog(data: Omit<FuelLog, 'id' | 'createdAt'>): Promise<FuelLog> {
-  await db.delay();
-  const log: FuelLog = {
-    ...data,
-    id: `fl${Date.now()}`,
-    createdAt: new Date().toISOString(),
-  };
-  db.get().fuelLogs.push(log);
-  db.save();
-  return log;
+export async function getFuelLogs(): Promise<FuelLog[]> {
+  const data = await api.get<unknown[]>('/fuel-logs', { pageSize: 200 });
+  return data.map((f) => normalizeFuel(f as Record<string, unknown>));
+}
+
+export async function createFuelLog(
+  data: Omit<FuelLog, 'id' | 'createdAt'>,
+): Promise<FuelLog> {
+  const result = await api.post<Record<string, unknown>>('/fuel-logs', data);
+  return normalizeFuel(result);
 }
 
 export async function deleteFuelLog(id: string): Promise<void> {
-  await db.delay();
-  const d = db.get();
-  d.fuelLogs = d.fuelLogs.filter((f) => f.id !== id);
-  db.save();
+  await api.delete(`/fuel-logs/${id}`);
+}
+
+// ── Expenses ──────────────────────────────────────────────────────────────────
+
+function normalizeExpense(e: Record<string, unknown>): Expense {
+  return {
+    id: e.id as string,
+    tripId: e.tripId as string,
+    vehicleId: e.vehicleId as string,
+    date: e.date as string,
+    toll: e.toll as number,
+    otherExpenses: e.otherExpenses as number,
+    maintenanceCost: e.maintenanceCost as number,
+    totalCost: e.totalCost as number,
+    description: e.description as string | undefined,
+    createdAt: e.createdAt as string,
+  };
 }
 
 export async function getExpenses(): Promise<Expense[]> {
-  await db.delay();
-  return [...db.get().expenses];
+  const data = await api.get<unknown[]>('/expenses', { pageSize: 200 });
+  return data.map((e) => normalizeExpense(e as Record<string, unknown>));
 }
 
-export async function createExpense(data: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense> {
-  await db.delay();
-  const expense: Expense = {
-    ...data,
-    id: `ex${Date.now()}`,
-    createdAt: new Date().toISOString(),
-  };
-  db.get().expenses.push(expense);
-  db.save();
-  return expense;
+export async function createExpense(
+  data: Omit<Expense, 'id' | 'createdAt'>,
+): Promise<Expense> {
+  const result = await api.post<Record<string, unknown>>('/expenses', data);
+  return normalizeExpense(result);
 }
 
 export async function deleteExpense(id: string): Promise<void> {
-  await db.delay();
-  const d = db.get();
-  d.expenses = d.expenses.filter((e) => e.id !== id);
-  db.save();
+  await api.delete(`/expenses/${id}`);
 }
 
-export async function getVehicleCostBreakdowns(): Promise<VehicleCostBreakdown[]> {
-  await db.delay();
-  const d = db.get();
-  return d.vehicles.map((v) => {
-    const fuelLogs = d.fuelLogs.filter((f) => f.vehicleId === v.id);
-    const expenses = d.expenses.filter((e) => e.vehicleId === v.id);
-    const maintenances = d.maintenance.filter((m) => m.vehicleId === v.id && m.status === 'completed');
-    const fuelCost = fuelLogs.reduce((sum, f) => sum + f.totalCost, 0);
-    const maintenanceCost = maintenances.reduce((sum, m) => sum + (m.actualCost ?? m.estimatedCost), 0);
-    const otherCost = expenses.reduce((sum, e) => sum + e.toll + e.otherExpenses, 0);
-    const totalCost = fuelCost + maintenanceCost + otherCost;
-    return {
-      vehicleId: v.id,
-      vehicleName: v.name,
-      registrationNumber: v.registrationNumber,
-      fuelCost,
-      maintenanceCost,
-      otherCost,
-      totalCost,
-      revenue: v.revenue,
-      profit: v.revenue - totalCost,
-    };
-  });
+// ── Cost Breakdowns ───────────────────────────────────────────────────────────
+
+export interface VehicleCostBreakdown {
+  vehicleId: string;
+  vehicleName: string;
+  registrationNumber: string;
+  fuelCost: number;
+  maintenanceCost: number;
+  otherCost: number;
+  totalCost: number;
+  revenue: number;
+  profit: number;
 }
+
+export async function getCostBreakdowns(): Promise<VehicleCostBreakdown[]> {
+  return api.get<VehicleCostBreakdown[]>('/expenses/cost-breakdowns');
+}
+
+// Alias — used by FuelExpensesPage and AnalyticsPage
+export const getVehicleCostBreakdowns = getCostBreakdowns;
+

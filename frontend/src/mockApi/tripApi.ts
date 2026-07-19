@@ -1,55 +1,61 @@
-import { db } from './db';
+import { api } from '../lib/apiClient';
 import type { Trip } from '../types';
-import { createFuelLog } from './fuelExpenseApi';
-import { createExpense } from './fuelExpenseApi';
+
+function normalize(t: Record<string, unknown>): Trip {
+  const vehicle = t.vehicle as Record<string, unknown> | undefined;
+  const driver = t.driver as Record<string, unknown> | undefined;
+  return {
+    id: t.id as string,
+    tripNumber: t.tripNumber as string,
+    source: t.source as string,
+    destination: t.destination as string,
+    vehicleId: (t.vehicleId ?? vehicle?.id) as string,
+    driverId: (t.driverId ?? driver?.id) as string,
+    cargoWeight: t.cargoWeight as number,
+    plannedDistance: t.plannedDistance as number,
+    actualDistance: t.actualDistance as number | undefined,
+    revenue: (t.revenue as number) ?? 0,
+    status: t.status as Trip['status'],
+    startDate: t.startDate as string,
+    endDate: t.endDate as string | undefined,
+    fuelConsumed: t.fuelConsumed as number | undefined,
+    finalOdometer: t.finalOdometer as number | undefined,
+    cancellationReason: t.cancellationReason as string | undefined,
+    notes: t.notes as string | undefined,
+    createdAt: t.createdAt as string,
+    updatedAt: t.updatedAt as string,
+  };
+}
 
 export async function getTrips(): Promise<Trip[]> {
-  await db.delay();
-  return [...db.get().trips];
+  const data = await api.get<unknown[]>('/trips', { pageSize: 200 });
+  return data.map((t) => normalize(t as Record<string, unknown>));
 }
 
 export async function getTrip(id: string): Promise<Trip | undefined> {
-  await db.delay();
-  return db.get().trips.find((t) => t.id === id);
+  try {
+    const data = await api.get<Record<string, unknown>>(`/trips/${id}`);
+    return normalize(data);
+  } catch {
+    return undefined;
+  }
 }
 
-export async function createTrip(data: Omit<Trip, 'id' | 'tripNumber' | 'createdAt' | 'updatedAt'>): Promise<Trip> {
-  await db.delay();
-  const tripCount = db.get().trips.length + 1;
-  const trip: Trip = {
-    ...data,
-    id: `tr${Date.now()}`,
-    tripNumber: `TR${String(tripCount).padStart(3, '0')}`,
-    status: 'draft',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  db.get().trips.push(trip);
-  db.save();
-  return trip;
+export async function createTrip(
+  data: Omit<Trip, 'id' | 'tripNumber' | 'createdAt' | 'updatedAt'>,
+): Promise<Trip> {
+  const result = await api.post<Record<string, unknown>>('/trips', data);
+  return normalize(result);
 }
 
 export async function dispatchTrip(id: string): Promise<Trip> {
-  await db.delay();
-  const d = db.get();
-  const tripIdx = d.trips.findIndex((t) => t.id === id);
-  if (tripIdx === -1) throw new Error('Trip not found');
-  const trip = d.trips[tripIdx];
-  if (trip.status !== 'draft') throw new Error('Only draft trips can be dispatched');
-
-  const vIdx = d.vehicles.findIndex((v) => v.id === trip.vehicleId);
-  const drIdx = d.drivers.findIndex((dr) => dr.id === trip.driverId);
-  if (vIdx !== -1) d.vehicles[vIdx] = { ...d.vehicles[vIdx], status: 'on_trip', updatedAt: new Date().toISOString() };
-  if (drIdx !== -1) d.drivers[drIdx] = { ...d.drivers[drIdx], status: 'on_trip', updatedAt: new Date().toISOString() };
-
-  const updated = { ...trip, status: 'dispatched' as const, updatedAt: new Date().toISOString() };
-  d.trips[tripIdx] = updated;
-  db.save();
-  return updated;
+  const result = await api.patch<Record<string, unknown>>(`/trips/${id}/dispatch`);
+  return normalize(result);
 }
 
 export async function completeTrip(
   id: string,
+<<<<<<< HEAD
   completion: { finalOdometer: number; fuelConsumed: number; toll?: number; otherExpenses?: number }
 ): Promise<Trip> {
   await db.delay();
@@ -171,4 +177,32 @@ export async function deleteTrip(id: string): Promise<void> {
   const d = db.get();
   d.trips = d.trips.filter((t) => t.id !== id);
   db.save();
+=======
+  completion: {
+    finalOdometer: number;
+    fuelConsumed: number;
+    toll?: number;
+    otherExpenses?: number;
+    actualDistance?: number;
+  },
+): Promise<Trip> {
+  const result = await api.patch<Record<string, unknown>>(`/trips/${id}/complete`, completion);
+  return normalize(result);
+}
+
+export async function cancelTrip(id: string, cancellationReason: string): Promise<Trip> {
+  const result = await api.patch<Record<string, unknown>>(`/trips/${id}/cancel`, {
+    cancellationReason,
+  });
+  return normalize(result);
+}
+
+export async function updateTrip(id: string, data: Partial<Trip>): Promise<Trip> {
+  const result = await api.put<Record<string, unknown>>(`/trips/${id}`, data);
+  return normalize(result);
+}
+
+export async function deleteTrip(id: string): Promise<void> {
+  await api.delete(`/trips/${id}`);
+>>>>>>> 53edb4a (Added TransitOps frontend and backend updates)
 }

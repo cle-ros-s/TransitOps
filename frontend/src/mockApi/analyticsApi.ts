@@ -1,4 +1,6 @@
-import { db } from './db';
+import { api } from '../lib/apiClient';
+
+// ── Dashboard Stats ───────────────────────────────────────────────────────────
 
 export interface DashboardStats {
   totalVehicles: number;
@@ -15,58 +17,159 @@ export interface DashboardStats {
   operationalCost: number;
 }
 
+interface RawDashboardStats {
+  vehicles: {
+    total: number;
+    available: number;
+    onTrip: number;
+    inShop: number;
+    retired: number;
+  };
+  drivers: {
+    total: number;
+    available: number;
+    onTrip: number;
+    offDuty: number;
+    suspended: number;
+  };
+  trips: {
+    total: number;
+    draft: number;
+    dispatched: number;
+    completed: number;
+    cancelled: number;
+  };
+  maintenance: { active: number; completed: number };
+  financials: {
+    totalRevenue: number;
+    totalFuelCost: number;
+    totalExpenses: number;
+  };
+  alerts: { expiringLicenses: number; activeMaintenance: number };
+  fleetUtilization: number;
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
-  await db.delay(100);
-  const d = db.get();
-  const vehicles = d.vehicles;
-  const trips = d.trips;
-  const drivers = d.drivers;
-  const fuelLogs = d.fuelLogs;
-  const expenses = d.expenses;
-  const maintenance = d.maintenance;
-
-  const activeVehicles = vehicles.filter((v) => v.status === 'on_trip').length;
-  const availableVehicles = vehicles.filter((v) => v.status === 'available').length;
-  const inMaintenanceVehicles = vehicles.filter((v) => v.status === 'in_shop').length;
-  const retiredVehicles = vehicles.filter((v) => v.status === 'retired').length;
-  const activeTrips = trips.filter((t) => t.status === 'dispatched').length;
-  const pendingTrips = trips.filter((t) => t.status === 'draft').length;
-  const driversOnDuty = drivers.filter((d) => d.status === 'on_trip').length;
-  const nonRetired = activeVehicles + availableVehicles + inMaintenanceVehicles;
-  const fleetUtilization = nonRetired > 0 ? Math.round(((activeVehicles + inMaintenanceVehicles) / nonRetired) * 100) : 0;
-  const totalRevenue = vehicles.reduce((sum, v) => sum + v.revenue, 0);
-  const fuelTotal = fuelLogs.reduce((sum, f) => sum + f.totalCost, 0);
-  const maintenanceTotal = maintenance.filter(m => m.status === 'completed').reduce((sum, m) => sum + (m.actualCost ?? m.estimatedCost), 0);
-  const expenseTotal = expenses.reduce((sum, e) => sum + e.totalCost, 0);
-  const operationalCost = fuelTotal + maintenanceTotal + expenseTotal;
-
+  const raw = await api.get<RawDashboardStats>('/dashboard/stats');
   return {
-    totalVehicles: vehicles.length,
-    activeVehicles,
-    availableVehicles,
-    inMaintenanceVehicles,
-    retiredVehicles,
-    activeTrips,
-    pendingTrips,
-    driversOnDuty,
-    fleetUtilization,
-    totalRevenue,
-    totalExpenses: operationalCost,
-    operationalCost,
+    totalVehicles: raw.vehicles.total,
+    activeVehicles: raw.vehicles.onTrip,
+    availableVehicles: raw.vehicles.available,
+    inMaintenanceVehicles: raw.vehicles.inShop,
+    retiredVehicles: raw.vehicles.retired,
+    activeTrips: raw.trips.dispatched,
+    pendingTrips: raw.trips.draft,
+    driversOnDuty: raw.drivers.onTrip,
+    fleetUtilization: raw.fleetUtilization,
+    totalRevenue: raw.financials.totalRevenue,
+    totalExpenses: raw.financials.totalFuelCost + raw.financials.totalExpenses,
+    operationalCost: raw.financials.totalFuelCost + raw.financials.totalExpenses,
   };
 }
 
-export interface MonthlyTrend { month: string; trips: number; revenue: number; fuel: number; }
+// ── Monthly Trends ────────────────────────────────────────────────────────────
 
-export async function getMonthlyTrends(): Promise<MonthlyTrend[]> {
-  await db.delay(100);
-  return [
-    { month: 'Jan', trips: 42, revenue: 1250000, fuel: 380000 },
-    { month: 'Feb', trips: 38, revenue: 1100000, fuel: 340000 },
-    { month: 'Mar', trips: 55, revenue: 1620000, fuel: 490000 },
-    { month: 'Apr', trips: 48, revenue: 1380000, fuel: 420000 },
-    { month: 'May', trips: 61, revenue: 1820000, fuel: 560000 },
-    { month: 'Jun', trips: 52, revenue: 1540000, fuel: 470000 },
-    { month: 'Jul', trips: 44, revenue: 1290000, fuel: 395000 },
-  ];
+export interface MonthlyTrend {
+  month: string;
+  trips: number;
+  revenue: number;
+  fuel: number;
+  expenses?: number;
+}
+
+export async function getMonthlyTrends(months = 6): Promise<MonthlyTrend[]> {
+  const data = await api.get<MonthlyTrend[]>('/analytics/monthly-trends', { months });
+  return data;
+}
+
+// ── Fleet Health ──────────────────────────────────────────────────────────────
+
+export interface FleetHealth {
+  expiringLicenses: Array<{
+    id: string;
+    name: string;
+    licenseNumber: string;
+    licenseExpiryDate: string;
+    status: string;
+  }>;
+  activeMaintenance: Array<{
+    id: string;
+    serviceType: string;
+    scheduledDate: string;
+    estimatedCost: number;
+    vehicle: { registrationNumber: string; name: string };
+  }>;
+}
+
+export async function getFleetHealth(): Promise<FleetHealth> {
+  return api.get<FleetHealth>('/dashboard/fleet-health');
+}
+
+// ── Recent Activity ───────────────────────────────────────────────────────────
+
+export interface RecentActivity {
+  recentTrips: Array<{
+    id: string;
+    tripNumber: string;
+    status: string;
+    source: string;
+    destination: string;
+    updatedAt: string;
+    vehicle: { registrationNumber: string };
+    driver: { name: string };
+  }>;
+  recentMaintenance: Array<{
+    id: string;
+    serviceType: string;
+    status: string;
+    updatedAt: string;
+    vehicle: { registrationNumber: string };
+  }>;
+}
+
+export async function getRecentActivity(): Promise<RecentActivity> {
+  return api.get<RecentActivity>('/dashboard/recent-activity');
+}
+
+// ── Vehicle Performance ───────────────────────────────────────────────────────
+
+export interface VehiclePerformance {
+  vehicleId: string;
+  registrationNumber: string;
+  name: string;
+  totalTrips: number;
+  totalRevenue: number;
+  totalFuelCost: number;
+  roi: number;
+}
+
+export async function getVehiclePerformance(): Promise<VehiclePerformance[]> {
+  return api.get<VehiclePerformance[]>('/analytics/vehicle-performance');
+}
+
+// ── Driver Performance ────────────────────────────────────────────────────────
+
+export interface DriverPerformance {
+  driverId: string;
+  name: string;
+  totalTrips: number;
+  safetyScore: number;
+  tripCompletionRate: number;
+}
+
+export async function getDriverPerformance(): Promise<DriverPerformance[]> {
+  return api.get<DriverPerformance[]>('/analytics/driver-performance');
+}
+
+// ── Maintenance Costs ─────────────────────────────────────────────────────────
+
+export interface MaintenanceCostBreakdown {
+  serviceType: string;
+  count: number;
+  totalCost: number;
+  avgCost: number;
+}
+
+export async function getMaintenanceCosts(): Promise<MaintenanceCostBreakdown[]> {
+  return api.get<MaintenanceCostBreakdown[]>('/analytics/maintenance-costs');
 }

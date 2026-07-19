@@ -1,26 +1,5 @@
-import prisma from '../src/config/prismaClient';
+import dotenv from 'dotenv';
+import path from 'path';
 
-beforeAll(async () => {
-  // Clear the DB entirely before tests run
-  const tablenames = await prisma.$queryRaw<Array<{ tablename: string }>>`
-    SELECT tablename FROM pg_tables WHERE schemaname='public'
-  `;
-
-  const tables = tablenames
-    .map(({ tablename }: { tablename: string }) => tablename)
-    .filter((name: string) => name !== '_prisma_migrations')
-    .map((name: string) => `"public"."${name}"`)
-    .join(', ');
-
-  try {
-    if (tables) {
-      await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE;`);
-    }
-  } catch (error: unknown) {
-    console.log({ error });
-  }
-});
-
-afterAll(async () => {
-  await prisma.$disconnect();
-});
+// Load test environment before any imports
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });

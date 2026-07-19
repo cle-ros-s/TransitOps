@@ -1,54 +1,70 @@
-import { db } from './db';
-import { SESSION_KEY } from '../config/constants';
-import type { LoginCredentials, AuthSession, User } from '../types';
+import { api } from '../lib/apiClient';
+import { useAuthStore } from '../store/authStore';
+import type { LoginCredentials, AuthSession } from '../types';
 
-const PASSWORDS: Record<string, string> = {
-  'fleet@transitops.com': 'fleet123',
-  'dispatch@transitops.com': 'dispatch123',
-  'safety@transitops.com': 'safety123',
-  'finance@transitops.com': 'finance123',
-};
+export interface LoginResponse {
+  accessToken: string;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: 'fleet_manager' | 'dispatcher' | 'safety_officer' | 'financial_analyst';
+  };
+}
 
 export async function loginApi(credentials: LoginCredentials): Promise<AuthSession> {
-  await db.delay(600);
-  const { email, password, role } = credentials;
-  const expectedPw = PASSWORDS[email];
-  if (!expectedPw || expectedPw !== password) {
-    throw new Error('Invalid email or password');
-  }
-  const user = db.get().users.find((u) => u.email === email && u.role === role);
-  if (!user) {
-    throw new Error('Role mismatch for this account');
-  }
+  const data = await api.post<LoginResponse>('/auth/login', {
+    email: credentials.email,
+    password: credentials.password,
+    role: credentials.role,
+  });
+
   const session: AuthSession = {
-    user: user as User,
-    token: `tok_${Date.now()}_${role}`,
-    expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+    user: {
+      id: data.user.id,
+      email: data.user.email,
+      name: data.user.name,
+      role: data.user.role,
+      department: '',
+      createdAt: new Date().toISOString(),
+    },
+    token: data.accessToken,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
   };
-  if (credentials.rememberMe) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  } else {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  }
+
+  // Persist token via auth store (zustand persist writes to localStorage)
+  const { setAuth } = useAuthStore.getState();
+  setAuth(session.user, session.token);
+
   return session;
 }
 
-export function getStoredSession(): AuthSession | null {
+export async function logoutApi(): Promise<void> {
   try {
-    const raw = localStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw) as AuthSession;
-    if (new Date(session.expiresAt) < new Date()) {
-      clearSession();
-      return null;
-    }
-    return session;
+    await api.post('/auth/logout');
   } catch {
-    return null;
+    // Ignore — always clear local state
+  } finally {
+    const { clearAuth } = useAuthStore.getState();
+    clearAuth();
   }
 }
 
+export async function getMeApi() {
+  return api.get<LoginResponse['user']>('/auth/me');
+}
+
+// ── Legacy compat shims used by existing components ──────────────────────────
+export function getStoredSession(): AuthSession | null {
+  const { user, token, isAuthenticated } = useAuthStore.getState();
+  if (!isAuthenticated || !user || !token) return null;
+  return {
+    user,
+    token,
+    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  };
+}
+
 export function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY);
-  sessionStorage.removeItem(SESSION_KEY);
+  useAuthStore.getState().clearAuth();
 }

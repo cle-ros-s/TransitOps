@@ -1,0 +1,295 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  fleet_manager
+  dispatcher
+  safety_officer
+  financial_analyst
+}
+
+enum VehicleStatus {
+  available
+  on_trip
+  in_shop
+  retired
+}
+
+enum VehicleType {
+  van
+  truck
+  mini
+  bus
+  trailer
+}
+
+enum FuelType {
+  diesel
+  petrol
+  cng
+  electric
+}
+
+enum DocType {
+  insurance
+  permit
+  registration
+  pollution
+}
+
+enum DriverStatus {
+  available
+  on_trip
+  off_duty
+  suspended
+}
+
+enum LicenseCategory {
+  A
+  B
+  C
+  D
+  E
+}
+
+enum TripStatus {
+  draft
+  dispatched
+  completed
+  cancelled
+}
+
+enum MaintenanceStatus {
+  active
+  completed
+}
+
+enum ServiceType {
+  oil_change
+  tire_replacement
+  brake_service
+  engine_repair
+  body_repair
+  electrical
+  ac_service
+  general_service
+  inspection
+}
+
+enum NotificationType {
+  info
+  warning
+  error
+  success
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  role         UserRole
+  password     String
+  department   String   @default("Operations")
+  isActive     Boolean  @default(true)
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  notifications Notification[]
+  settings      Settings[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Vehicle {
+  id                 String        @id @default(cuid())
+  registrationNumber String        @unique
+  name               String
+  type               VehicleType
+  status             VehicleStatus @default(available)
+  maxLoadCapacity    Float
+  odometer           Float         @default(0)
+  acquisitionCost    Float         @default(0)
+  revenue            Float         @default(0)
+  region             String
+  make               String
+  model              String
+  year               Int
+  color              String
+  fuelType           FuelType
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  trips       Trip[]
+  maintenance MaintenanceRecord[]
+  fuelLogs    FuelLog[]
+  expenses    Expense[]
+  documents   VehicleDocument[]
+
+  @@map("vehicles")
+}
+
+model VehicleDocument {
+  id        String   @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  type      DocType
+  name      String
+  expiryDate DateTime
+  fileUrl   String?
+  uploadedAt DateTime @default(now())
+
+  @@map("vehicle_documents")
+}
+
+model Driver {
+  id                 String          @id @default(cuid())
+  name               String
+  licenseNumber      String          @unique
+  licenseCategory    LicenseCategory
+  licenseExpiryDate  DateTime
+  contactNumber      String
+  email              String          @unique
+  safetyScore        Float           @default(80)
+  tripCompletionRate Float           @default(90)
+  status             DriverStatus    @default(available)
+  address            String
+  joinDate           DateTime
+  totalTrips         Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  trips Trip[]
+
+  @@map("drivers")
+}
+
+model Trip {
+  id                 String     @id @default(cuid())
+  tripNumber         String     @unique
+  vehicleId          String
+  vehicle            Vehicle    @relation(fields: [vehicleId], references: [id])
+  driverId           String
+  driver             Driver     @relation(fields: [driverId], references: [id])
+  source             String
+  destination        String
+  cargoWeight        Float
+  plannedDistance    Float
+  actualDistance     Float?
+  revenue            Float      @default(0)
+  status             TripStatus @default(draft)
+  startDate          DateTime
+  endDate            DateTime?
+  fuelConsumed       Float?
+  finalOdometer      Float?
+  cancellationReason String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  fuelLogs FuelLog[]
+  expenses Expense[]
+
+  @@map("trips")
+}
+
+model MaintenanceRecord {
+  id            String            @id @default(cuid())
+  vehicleId     String
+  vehicle       Vehicle           @relation(fields: [vehicleId], references: [id])
+  serviceType   ServiceType
+  description   String
+  estimatedCost Float
+  actualCost    Float?
+  scheduledDate DateTime
+  completedDate DateTime?
+  status        MaintenanceStatus @default(active)
+  technician    String?
+  workshopName  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@map("maintenance_records")
+}
+
+model FuelLog {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  tripId      String?
+  trip        Trip?    @relation(fields: [tripId], references: [id])
+  date        DateTime
+  liters      Float
+  costPerLiter Float
+  totalCost   Float
+  odometer    Float
+  fuelStation String?
+  createdAt   DateTime @default(now())
+
+  @@map("fuel_logs")
+}
+
+model Expense {
+  id              String   @id @default(cuid())
+  tripId          String
+  trip            Trip     @relation(fields: [tripId], references: [id])
+  vehicleId       String
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id])
+  date            DateTime
+  toll            Float    @default(0)
+  otherExpenses   Float    @default(0)
+  maintenanceCost Float    @default(0)
+  totalCost       Float
+  description     String?
+  createdAt       DateTime @default(now())
+
+  @@map("expenses")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType @default(info)
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@map("settings")
+}
